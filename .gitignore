@@ -8,6 +8,8 @@ venv/
 spark-warehouse/
 *.log
 checkpoint/
+.python-packages/
+.ivy2/
 .DS_Store
 
 # working notes, not part of the repo

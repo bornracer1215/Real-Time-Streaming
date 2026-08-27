@@ -67,6 +67,31 @@ services:
       timeout: 5s
       retries: 5
 
+  spark:
+    # Official Apache Spark image. Spark's Structured Streaming job runs *inside* this
+    # container rather than on the Windows host — PySpark needs Hadoop's winutils.exe shim to
+    # run natively on Windows, and there's no trustworthy prebuilt source for that binary. A
+    # Linux container sidesteps the problem entirely (and matches how Spark actually runs in
+    # most real deployments anyway). See decisions.md.
+    image: apache/spark:3.5.1
+    container_name: spark
+    depends_on:
+      kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./spark_streaming:/app
+    working_dir: /app
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:19092
+      POSTGRES_HOST: postgres
+      REDIS_HOST: redis
+    # Idles so we can `docker exec` spark-submit runs into it on demand during development.
+    entrypoint: ["sleep", "infinity"]
+
 volumes:
   postgres_data:
   redis_data:
