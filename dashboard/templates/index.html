@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>IoT Sensor Dashboard</title>
+<style>
+  :root {
+    --bg: #0f1420; --panel: #161d2e; --border: #262f45;
+    --text: #e4e8f1; --muted: #8993ac; --accent: #4f8cff; --danger: #ff5c6c;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, Segoe UI, Roboto, sans-serif; padding: 32px;
+  }
+  h1 { margin: 0 0 4px; font-size: 20px; }
+  .subtitle { color: var(--muted); font-size: 13px; margin-bottom: 24px; }
+  .stats { display: flex; gap: 16px; margin-bottom: 24px; }
+  .stat {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+    padding: 14px 20px; min-width: 140px;
+  }
+  .stat .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+  .stat .value { font-size: 26px; font-weight: 600; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .stat .value.danger { color: var(--danger); }
+  table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  th, td { text-align: left; padding: 10px 14px; font-size: 13px; font-variant-numeric: tabular-nums; }
+  th { color: var(--muted); font-weight: 500; text-transform: uppercase; font-size: 11px; letter-spacing: .04em; border-bottom: 1px solid var(--border); }
+  tbody tr:not(:last-child) td { border-bottom: 1px solid var(--border); }
+  tr.anomaly td { color: var(--danger); }
+  td.empty { color: var(--muted); text-align: center; padding: 24px; font-variant-numeric: normal; }
+  .pill {
+    display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px;
+    background: rgba(79,140,255,.15); color: var(--accent);
+  }
+  tr.anomaly .pill.count { background: rgba(255,92,108,.18); color: var(--danger); }
+</style>
+</head>
+<body>
+  <h1>IoT Sensor Dashboard</h1>
+  <div class="subtitle">Live windowed aggregates, polled from Redis every 2s &middot; last refresh <span id="server-time">-</span></div>
+
+  <div class="stats">
+    <div class="stat">
+      <div class="label">Active devices</div>
+      <div class="value" id="device-count">-</div>
+    </div>
+    <div class="stat">
+      <div class="label">Anomalies in view</div>
+      <div class="value" id="anomaly-count">-</div>
+    </div>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Device</th><th>Sensor</th><th>Avg</th><th>Min</th><th>Max</th>
+        <th>Readings</th><th>Anomalies</th><th>Window ends</th>
+      </tr>
+    </thead>
+    <tbody id="readings-body">
+      <tr><td class="empty" colspan="8">Loading…</td></tr>
+    </tbody>
+  </table>
+
+<script>
+async function refresh() {
+  let data;
+  try {
+    const res = await fetch('/api/latest');
+    data = await res.json();
+  } catch (e) {
+    return; // transient fetch failure — next poll will retry
+  }
+
+  document.getElementById('device-count').textContent = data.device_count;
+  const anomalyEl = document.getElementById('anomaly-count');
+  anomalyEl.textContent = data.anomaly_count;
+  anomalyEl.classList.toggle('danger', data.anomaly_count > 0);
+  document.getElementById('server-time').textContent = new Date(data.server_time).toLocaleTimeString();
+
+  const tbody = document.getElementById('readings-body');
+  if (data.readings.length === 0) {
+    tbody.innerHTML = '<tr><td class="empty" colspan="8">No live readings — is the producer running?</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = data.readings.map(r => `
+    <tr class="${r.anomaly_count > 0 ? 'anomaly' : ''}">
+      <td>${r.device_id}</td>
+      <td><span class="pill">${r.sensor_type}</span></td>
+      <td>${r.avg_value.toFixed(2)}</td>
+      <td>${r.min_value.toFixed(2)}</td>
+      <td>${r.max_value.toFixed(2)}</td>
+      <td>${r.reading_count}</td>
+      <td><span class="pill count">${r.anomaly_count}</span></td>
+      <td>${new Date(r.window_end).toLocaleTimeString()}</td>
+    </tr>
+  `).join('');
+}
+
+refresh();
+setInterval(refresh, 2000);
+</script>
+</body>
+</html>
