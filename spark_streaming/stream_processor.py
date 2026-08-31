@@ -14,6 +14,7 @@ from pyspark.sql.functions import avg, col, count, from_json, max as spark_max, 
 from pyspark.sql.types import DoubleType, StringType, StructField, StructType, TimestampType
 
 import sinks
+from monitoring import ThroughputListener
 
 # Defaults assume this runs inside the `spark` container on the Compose network (see
 # docker-compose.yml), where services are reachable by name rather than localhost.
@@ -79,6 +80,7 @@ def main():
         .getOrCreate()
     )
     spark.sparkContext.setLogLevel("WARN")
+    spark.streams.addListener(ThroughputListener())
 
     raw = (
         spark.readStream.format("kafka")
