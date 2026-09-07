@@ -64,6 +64,15 @@ jobs:
             --topic iot-sensor-readings --bootstrap-server localhost:9092 \
             --partitions 3 --replication-factor 1
 
+      - name: Allow the Spark container's non-root user to write into the mounted volume
+        # On a real Linux bind mount (unlike Docker Desktop's more permissive one on Windows/Mac
+        # — see decisions.md), the checked-out files aren't owned by the container's non-root
+        # `spark` user, so its later pip installs and Ivy jar cache writes would hit permission
+        # errors. Fix it once here (as root, which bypasses host file-ownership checks) rather
+        # than on every individual command, so the rest of this job runs the exact same commands
+        # documented in the README.
+        run: docker exec -u root spark chmod -R 777 /app
+
       - name: Install Spark container's Python dependencies
         run: docker exec spark pip3 install --target=/app/.python-packages psycopg2-binary redis
 
