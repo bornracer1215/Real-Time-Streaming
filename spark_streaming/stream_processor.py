@@ -48,6 +48,48 @@ def anomaly_flag_column():
     return expr.otherwise(0)
 
 
+def add_anomaly_flag(readings):
+    """Tags each raw reading row with is_anomaly (0/1). Pure DataFrame transform — testable
+    against a plain batch DataFrame, no Kafka/streaming context required."""
+    return readings.withColumn("is_anomaly", anomaly_flag_column())
+
+
+def build_windowed_aggregates(readings, window_duration, slide_duration, watermark):
+    """The core windowing/aggregation logic, factored out of main() so it can be unit-tested
+    directly against a static (batch) DataFrame — withWatermark is a no-op in batch mode, so the
+    same code path works for both a real streaming query and a plain test DataFrame."""
+    return (
+        readings
+        # Watermark: tolerate readings arriving up to `watermark` late (by event_time) before a
+        # window is considered final. Without this, Spark would have to keep every window's
+        # state in memory forever, since a late event could always still arrive.
+        .withWatermark("event_time", watermark)
+        .groupBy(
+            window(col("event_time"), window_duration, slide_duration),
+            col("device_id"),
+            col("sensor_type"),
+        )
+        .agg(
+            avg("value").alias("avg_value"),
+            spark_min("value").alias("min_value"),
+            spark_max("value").alias("max_value"),
+            count("*").alias("reading_count"),
+            spark_sum("is_anomaly").alias("anomaly_count"),
+        )
+        .select(
+            col("window.start").alias("window_start"),
+            col("window.end").alias("window_end"),
+            "device_id",
+            "sensor_type",
+            "avg_value",
+            "min_value",
+            "max_value",
+            "reading_count",
+            "anomaly_count",
+        )
+    )
+
+
 def process_batch(batch_df, batch_id: int):
     if batch_df.rdd.isEmpty():
         print(f"[batch {batch_id}] empty, skipping")
@@ -90,42 +132,11 @@ def main():
         .load()
     )
 
-    readings = (
-        raw.select(from_json(col("value").cast("string"), READING_SCHEMA).alias("data"))
-        .select("data.*")
-        .withColumn("is_anomaly", anomaly_flag_column())
+    readings = add_anomaly_flag(
+        raw.select(from_json(col("value").cast("string"), READING_SCHEMA).alias("data")).select("data.*")
     )
 
-    windowed = (
-        readings
-        # Watermark: tolerate readings arriving up to `watermark` late (by event_time) before a
-        # window is considered final. Without this, Spark would have to keep every window's
-        # state in memory forever, since a late event could always still arrive.
-        .withWatermark("event_time", args.watermark)
-        .groupBy(
-            window(col("event_time"), args.window_duration, args.slide_duration),
-            col("device_id"),
-            col("sensor_type"),
-        )
-        .agg(
-            avg("value").alias("avg_value"),
-            spark_min("value").alias("min_value"),
-            spark_max("value").alias("max_value"),
-            count("*").alias("reading_count"),
-            spark_sum("is_anomaly").alias("anomaly_count"),
-        )
-        .select(
-            col("window.start").alias("window_start"),
-            col("window.end").alias("window_end"),
-            "device_id",
-            "sensor_type",
-            "avg_value",
-            "min_value",
-            "max_value",
-            "reading_count",
-            "anomaly_count",
-        )
-    )
+    windowed = build_windowed_aggregates(readings, args.window_duration, args.slide_duration, args.watermark)
 
     query = (
         windowed.writeStream

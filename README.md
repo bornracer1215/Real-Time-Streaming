@@ -61,6 +61,33 @@ pipeline was pushed up to ~1,822 messages/sec sustained (the producer script's o
 machine — Kafka and Spark both had headroom to spare well beyond that), with Spark's processing
 rate consistently running 2-3x ahead of the input rate and no backlog ever building up.
 
+## Tests & CI
+
+There's a small test suite (`tests/`) and a two-stage GitHub Actions pipeline
+(`.github/workflows/ci.yml`) that runs on every push/PR to `main`:
+
+- **Unit tests** (fast, no infrastructure): the sensor simulation logic (`devices.py`), the Spark
+  anomaly-flagging and windowed-aggregation logic (run against a plain batch DataFrame — no Kafka
+  needed), and the dashboard's `/api/latest` endpoint (using `fakeredis` instead of a real Redis).
+  These run natively on Linux CI runners, where PySpark starts up without the Windows-specific
+  `winutils.exe` issue this project hit locally (see above).
+- **Integration smoke test** (slower, real infrastructure): brings up the actual Docker Compose
+  stack, creates the Kafka topic, starts the real Spark job in its container, runs the real
+  producer, and asserts that windowed aggregates actually landed in both Postgres and Redis. This
+  is the test that answers "does the whole pipeline actually work," not just "is each piece's
+  logic correct" — it only runs if the unit tests pass first.
+
+Run the unit tests locally:
+
+```bash
+pip install -r requirements-dev.txt -r producer/requirements.txt -r spark_streaming/requirements.txt -r dashboard/requirements.txt
+pytest tests/ -v
+```
+
+Note: on Windows, `tests/test_stream_processor.py` won't run locally for the same reason the Spark
+job itself doesn't (no `winutils.exe`) — it's verified by copying it into the running `spark`
+container and running `pytest` there, and by CI on every push.
+
 ## Running it
 
 **Requirements:** Docker Desktop, Python 3.11+ on the host (for the producer and dashboard — Spark
@@ -72,7 +99,7 @@ itself runs entirely inside its container, no local PySpark install needed).
 docker compose up -d
 ```
 
-This starts Kafka, Kafka UI (`http://localhost:8080`), Postgres, Redis, and an idling Spark
+This starts Kafka, Kafka UI (`http://localhost:8081`), Postgres, Redis, and an idling Spark
 container. Give it a few seconds for the healthchecks to pass.
 
 **2. Create the Kafka topic** (first time only)

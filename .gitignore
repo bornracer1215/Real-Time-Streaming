@@ -10,6 +10,7 @@ spark-warehouse/
 checkpoint/
 .python-packages/
 .ivy2/
+.pytest_cache/
 .DS_Store
 
 # working notes, not part of the repo
